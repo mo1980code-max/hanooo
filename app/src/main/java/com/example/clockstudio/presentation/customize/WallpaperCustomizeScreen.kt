@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -97,8 +97,11 @@ fun WallpaperCustomizeScreen(
         mutableStateOf(initialConfiguration.copy(wallpaperId = item.id).normalized())
     }
     val latestConfiguration by rememberUpdatedState(configuration)
-    val currentTime = rememberCurrentTime(configuration.showSeconds || configuration.showSecondHand)
-    val battery = rememberBatteryInfo(active = item.category == ClockCategory.SMART)
+    val currentTime = rememberCurrentTime(
+        updateEverySecond = configuration.showSeconds || configuration.showSecondHand,
+        smoothSeconds = item.category == ClockCategory.ANALOG && configuration.showSecondHand && configuration.smoothSeconds,
+    )
+    val battery = rememberBatteryInfo(active = item.category == ClockCategory.SMART && configuration.showBattery)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val settings by preferencesRepository.settingsFlow.collectAsStateWithLifecycle(initialValue = AppSettings())
@@ -132,35 +135,40 @@ fun WallpaperCustomizeScreen(
                     Text(item.title, color = Color(0xFFBDBDBD), style = MaterialTheme.typography.labelMedium, maxLines = 1)
                 }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 390.dp)
-                        .aspectRatio(0.78f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .pointerInput(item.id) {
-                            detectTransformGestures { _, pan, zoom, _ ->
-                                val current = latestConfiguration
-                                val point = ClockMath.normalizedPosition(
-                                    current.x + pan.x / size.width.coerceAtLeast(1),
-                                    current.y + pan.y / size.height.coerceAtLeast(1),
-                                )
-                                configuration = current.copy(
-                                    x = point.first,
-                                    y = point.second,
-                                    scale = (current.scale * zoom).coerceIn(0.45f, 1.65f),
-                                )
-                            }
-                        },
+                BoxWithConstraints(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    WallpaperArt(item, Modifier.fillMaxSize(), configuration)
-                    ClockOverlayPreview(
-                        item = item,
-                        time = currentTime,
-                        batteryPercent = battery?.percent,
-                        configuration = configuration,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    val previewWidth = minOf(maxWidth, 304.dp)
+                    Box(
+                        modifier = Modifier
+                            .width(previewWidth)
+                            .aspectRatio(0.78f)
+                            .clip(RoundedCornerShape(20.dp))
+                            .pointerInput(item.id) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    val current = latestConfiguration
+                                    val point = ClockMath.normalizedPosition(
+                                        current.x + pan.x / size.width.coerceAtLeast(1),
+                                        current.y + pan.y / size.height.coerceAtLeast(1),
+                                    )
+                                    configuration = current.copy(
+                                        x = point.first,
+                                        y = point.second,
+                                        scale = (current.scale * zoom).coerceIn(0.45f, 1.65f),
+                                    )
+                                }
+                            },
+                    ) {
+                        WallpaperArt(item, Modifier.fillMaxSize(), configuration)
+                        ClockOverlayPreview(
+                            item = item,
+                            time = currentTime,
+                            batteryPercent = battery?.percent,
+                            configuration = configuration,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
                 Text(
                     stringResource(R.string.drag_clock_hint),
@@ -182,20 +190,22 @@ fun WallpaperCustomizeScreen(
                     ColorPicker(stringResource(R.string.accent_color), configuration.accentColor) { configuration = configuration.copy(accentColor = it) }
                 }
 
+                if (item.category != ClockCategory.ANALOG) {
+                    ToggleControl(stringResource(R.string.show_seconds), configuration.showSeconds) { configuration = configuration.copy(showSeconds = it) }
+                    ToggleControl(stringResource(R.string.show_date), configuration.showDate) { configuration = configuration.copy(showDate = it) }
+                    ToggleControl(stringResource(R.string.show_day), configuration.showDay) { configuration = configuration.copy(showDay = it) }
+                }
                 if (item.category == ClockCategory.CUSTOM || item.category == ClockCategory.DIGITAL || item.category == ClockCategory.SMART) {
+                    ToggleControl(stringResource(R.string.show_am_pm), configuration.showAmPm) { configuration = configuration.copy(showAmPm = it) }
+                    SectionTitle(stringResource(R.string.time_format))
+                    FormatModePicker(configuration.timeFormatMode) { configuration = configuration.copy(timeFormatMode = it, useSystem24HourFormat = settings.useSystem24HourFormat) }
                     if (item.category != ClockCategory.SMART) {
-                        ToggleControl(stringResource(R.string.show_seconds), configuration.showSeconds) { configuration = configuration.copy(showSeconds = it) }
-                        ToggleControl(stringResource(R.string.show_am_pm), configuration.showAmPm) { configuration = configuration.copy(showAmPm = it) }
-                        SectionTitle(stringResource(R.string.time_format))
-                        FormatModePicker(configuration.timeFormatMode) { configuration = configuration.copy(timeFormatMode = it, useSystem24HourFormat = settings.useSystem24HourFormat) }
                         SectionTitle(stringResource(R.string.font_style))
                         FontPicker(configuration.fontStyleId) { configuration = configuration.copy(fontStyleId = it) }
                     }
-                    ToggleControl(stringResource(R.string.show_date), configuration.showDate) { configuration = configuration.copy(showDate = it) }
-                    ToggleControl(stringResource(R.string.show_day), configuration.showDay) { configuration = configuration.copy(showDay = it) }
-                    if (item.category == ClockCategory.SMART) {
-                        ToggleControl(stringResource(R.string.show_battery), configuration.showBattery) { configuration = configuration.copy(showBattery = it) }
-                    }
+                }
+                if (item.category == ClockCategory.SMART) {
+                    ToggleControl(stringResource(R.string.show_battery), configuration.showBattery) { configuration = configuration.copy(showBattery = it) }
                 }
 
                 if (item.category == ClockCategory.ANALOG) {

@@ -114,16 +114,27 @@ fun SmartClockPreview(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(
-                text = timeText,
-                color = primary,
-                fontSize = timeFontSize,
-                fontFamily = if (style.layoutType == SmartClockLayout.CYBERPUNK) FontFamily.Monospace else FontFamily.SansSerif,
-                fontWeight = FontWeight.Light,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                softWrap = false,
-            )
+            Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = timeText,
+                    color = primary,
+                    fontSize = timeFontSize,
+                    fontFamily = if (style.layoutType == SmartClockLayout.CYBERPUNK) FontFamily.Monospace else FontFamily.SansSerif,
+                    fontWeight = FontWeight.Light,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                if ((config?.showAmPm ?: true) && !use24Hour) {
+                    Text(
+                        text = ClockTime.amPm(time, locale),
+                        color = accent,
+                        fontSize = if (compact) 8.sp else 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = if (compact) 3.dp else 6.dp),
+                    )
+                }
+            }
             if (showDay || showDate) {
                 Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                     if (showDay) SmallInfo(ClockTime.day(time, locale), accent, compact)

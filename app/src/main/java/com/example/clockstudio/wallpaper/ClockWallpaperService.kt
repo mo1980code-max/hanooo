@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.time.ZonedDateTime
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Battery-aware Android live wallpaper. No frames are posted while the system hides the wallpaper. */
 class ClockWallpaperService : WallpaperService() {
@@ -50,6 +51,7 @@ class ClockWallpaperService : WallpaperService() {
         @Volatile private var wallpaperBitmap: android.graphics.Bitmap? = null
         @Volatile private var batteryPercent: Int? = null
         @Volatile private var activeLocale: Locale = Locale.getDefault()
+        private val bitmapLoadGeneration = AtomicInteger(0)
         @Volatile private var surfaceWidth = 0
         @Volatile private var surfaceHeight = 0
         private var timeReceiverRegistered = false
@@ -108,10 +110,13 @@ class ClockWallpaperService : WallpaperService() {
 
         override fun onVisibilityChanged(visible: Boolean) {
             super.onVisibilityChanged(visible)
+            if (destroyed) return
             isVisible = visible
             if (visible) {
-                registerTimeReceiver()
-                updateBatteryReceiver()
+                if (surfaceReady) {
+                    registerTimeReceiver()
+                    updateBatteryReceiver()
+                }
                 requestImmediateFrame()
             } else {
                 renderHandler.removeCallbacks(frameTask)
@@ -121,9 +126,14 @@ class ClockWallpaperService : WallpaperService() {
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
+            if (destroyed) return
             surfaceWidth = width
             surfaceHeight = height
             surfaceReady = width > 0 && height > 0
+            if (isVisible && surfaceReady) {
+                registerTimeReceiver()
+                updateBatteryReceiver()
+            }
             loadWallpaperBitmap(wallpaper, width, height)
             requestImmediateFrame()
         }
@@ -131,6 +141,7 @@ class ClockWallpaperService : WallpaperService() {
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
             surfaceReady = false
             renderHandler.removeCallbacks(frameTask)
+            unregisterReceivers()
             super.onSurfaceDestroyed(holder)
         }
 
@@ -141,17 +152,20 @@ class ClockWallpaperService : WallpaperService() {
             mainHandler.removeCallbacksAndMessages(null)
             renderHandler.removeCallbacksAndMessages(null)
             unregisterReceivers()
+            wallpaperBitmap = null
             ioScope.cancel(CancellationException("Wallpaper engine destroyed"))
+            renderHandler.post { renderer.clearBackgroundCache() }
             renderThread.quitSafely()
             super.onDestroy()
         }
 
         private fun loadWallpaperBitmap(item: WallpaperItem, width: Int, height: Int) {
+            val generation = bitmapLoadGeneration.incrementAndGet()
             val targetWidth = width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
             val targetHeight = height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
             ioScope.launch {
                 val decoded = WallpaperBitmapLoader.load(applicationContext, item, targetWidth, targetHeight)
-                if (wallpaper.id == item.id && configuration.wallpaperId == item.id) {
+                if (!destroyed && generation == bitmapLoadGeneration.get() && wallpaper.id == item.id && configuration.wallpaperId == item.id) {
                     wallpaperBitmap = decoded
                     requestImmediateFrame()
                 }
@@ -221,7 +235,7 @@ class ClockWallpaperService : WallpaperService() {
         }
 
         private fun updateBatteryReceiver() {
-            if (isVisible && wallpaper.category == ClockCategory.SMART && configuration.showBattery) {
+            if (isVisible && surfaceReady && wallpaper.category == ClockCategory.SMART && configuration.showBattery) {
                 if (batteryReceiverRegistered) return
                 val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
                 val sticky = ContextCompat.registerReceiver(

@@ -81,8 +81,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.activity:activity-ktx:1.10.1")
 
-    // The optional ads adapter is gated by BuildConfig.ADS_ENABLED. The source uses only Google's
-    // official sample application and banner unit IDs; replace them only in a release-specific setup.
+    // The optional ads adapter is gated by BuildConfig.ADS_ENABLED. Source code uses only Google's
+    // official sample application, banner, and interstitial IDs; never use production IDs in debug builds.
     implementation("com.google.android.gms:play-services-ads:24.5.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")

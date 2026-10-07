@@ -19,23 +19,27 @@ class HomeViewModel(
     private val preferencesRepository: UserPreferencesRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
-        HomeUiState(wallpapers = wallpaperRepository.getAll(), isLoading = false),
+        HomeUiState(wallpapers = wallpaperRepository.getAll(), isLoading = true),
     )
     val uiState = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
-            combine(preferencesRepository.settingsFlow, preferencesRepository.favoritesFlow) { settings, favorites ->
-                settings to favorites
+            combine(
+                preferencesRepository.settingsFlow,
+                preferencesRepository.favoritesFlow,
+                preferencesRepository.selectedCategoryFlow,
+            ) { settings, favorites, savedCategory ->
+                Triple(settings, favorites, savedCategory)
             }.catch { throwable ->
                 _uiState.update { it.copy(isLoading = false, error = throwable.message) }
-            }.collect { (settings, favorites) ->
+            }.collect { (settings, favorites, savedCategory) ->
                 _uiState.update { current ->
                     val categoryChangedInSettings = current.appSettings.defaultCategory != settings.defaultCategory
-                    val selected = if (current.isLoading || categoryChangedInSettings) {
-                        settings.defaultCategory
-                    } else {
-                        current.selectedCategory
+                    val selected = when {
+                        current.isLoading -> savedCategory
+                        categoryChangedInSettings -> settings.defaultCategory
+                        else -> savedCategory
                     }
                     current.copy(
                         selectedCategory = selected,
@@ -51,9 +55,9 @@ class HomeViewModel(
     }
 
     fun selectCategory(category: ClockCategory) {
-        _uiState.update { current ->
-            if (current.selectedCategory == category) current else current.copy(selectedCategory = category)
-        }
+        if (_uiState.value.selectedCategory == category) return
+        _uiState.update { current -> current.copy(selectedCategory = category) }
+        viewModelScope.launch { preferencesRepository.setSelectedCategory(category) }
     }
 
     fun openWallpaper(wallpaperId: String) {

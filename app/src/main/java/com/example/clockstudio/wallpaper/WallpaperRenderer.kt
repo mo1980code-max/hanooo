@@ -18,6 +18,7 @@ import com.example.clockstudio.clock.digital.ClockTime
 import com.example.clockstudio.domain.model.AnalogClockCatalog
 import com.example.clockstudio.domain.model.ClockCategory
 import com.example.clockstudio.domain.model.DigitalClockCatalog
+import com.example.clockstudio.domain.model.BackgroundScaleMode
 import com.example.clockstudio.domain.model.DigitalLayoutType
 import com.example.clockstudio.domain.model.SmartClockCatalog
 import com.example.clockstudio.domain.model.WallpaperConfiguration
@@ -26,10 +27,16 @@ import java.time.ZonedDateTime
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /** Native Canvas renderer shared by system wallpaper surfaces and generated art previews. */
 class WallpaperRenderer(private val context: Context) {
     @Volatile private var drawingLocale: Locale = Locale.getDefault()
+    private val backgroundCacheLock = Any()
+    private val cachedBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+    private var cachedBackgroundKey: BackgroundCacheKey? = null
+    private var cachedBackgroundBitmap: Bitmap? = null
+    private var failedBackgroundKey: BackgroundCacheKey? = null
 
     fun draw(
         canvas: Canvas,
@@ -42,12 +49,100 @@ class WallpaperRenderer(private val context: Context) {
     ) {
         drawingLocale = locale ?: appLocale()
         val bounds = RectF(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat())
-        drawBackground(canvas, bounds, item.artworkIndex, bitmap, configuration)
-        drawBrightnessAndDim(canvas, bounds, configuration)
+        drawCachedBackground(canvas, bounds, item, configuration, bitmap)
         when (item.category) {
             ClockCategory.CUSTOM, ClockCategory.DIGITAL -> drawDigital(canvas, item, configuration, time, drawingLocale)
             ClockCategory.ANALOG -> drawAnalog(canvas, item, configuration, time)
             ClockCategory.SMART -> drawSmart(canvas, item, configuration, time, batteryPercent, drawingLocale)
+        }
+    }
+
+    /** Rasterize artwork and its lighting once per wallpaper/config/surface, not on every clock tick. */
+    private fun drawCachedBackground(
+        canvas: Canvas,
+        bounds: RectF,
+        item: WallpaperItem,
+        configuration: WallpaperConfiguration,
+        sourceBitmap: Bitmap?,
+    ) {
+        if (canvas.width <= 0 || canvas.height <= 0) return
+        val key = BackgroundCacheKey(
+            wallpaperId = item.id,
+            artworkIndex = item.artworkIndex,
+            width = canvas.width,
+            height = canvas.height,
+            sourceBitmap = sourceBitmap?.takeUnless { it.isRecycled },
+            brightness = configuration.brightness,
+            dimAmount = configuration.dimAmount,
+            scaleMode = configuration.backgroundScaleMode,
+        )
+        val cached = synchronized(backgroundCacheLock) {
+            when {
+                cachedBackgroundKey == key && cachedBackgroundBitmap?.isRecycled == false -> cachedBackgroundBitmap
+                failedBackgroundKey == key -> null
+                else -> {
+                    cachedBackgroundBitmap?.takeUnless { it.isRecycled }?.recycle()
+                    cachedBackgroundBitmap = null
+                    cachedBackgroundKey = null
+                    val source = key.sourceBitmap
+                    val scale = min(1f, MAX_BACKGROUND_DIMENSION.toFloat() / max(canvas.width, canvas.height))
+                    val bitmapWidth = (canvas.width * scale).roundToInt().coerceAtLeast(1)
+                    val bitmapHeight = (canvas.height * scale).roundToInt().coerceAtLeast(1)
+                    val replacement = try {
+                        Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+                    } catch (_: OutOfMemoryError) {
+                        null
+                    } catch (_: IllegalArgumentException) {
+                        null
+                    }
+                    if (replacement == null) {
+                        failedBackgroundKey = key
+                        null
+                    } else {
+                        try {
+                            val backgroundCanvas = Canvas(replacement)
+                            val backgroundBounds = RectF(0f, 0f, bitmapWidth.toFloat(), bitmapHeight.toFloat())
+                            drawBackground(backgroundCanvas, backgroundBounds, item.artworkIndex, source, configuration)
+                            drawBrightnessAndDim(backgroundCanvas, backgroundBounds, configuration)
+                            cachedBackgroundBitmap?.takeUnless { it.isRecycled }?.recycle()
+                            cachedBackgroundBitmap = replacement
+                            cachedBackgroundKey = key
+                            failedBackgroundKey = null
+                            replacement
+                        } catch (_: OutOfMemoryError) {
+                            replacement.recycle()
+                            failedBackgroundKey = key
+                            null
+                        } catch (_: RuntimeException) {
+                            replacement.recycle()
+                            failedBackgroundKey = key
+                            null
+                        }
+                    }
+                }
+            }
+        }
+
+        if (cached != null && !cached.isRecycled) {
+            canvas.drawBitmap(
+                cached,
+                null,
+                bounds,
+                cachedBackgroundPaint,
+            )
+        } else {
+            // Graceful fallback if a low-memory device cannot allocate the cached surface bitmap.
+            drawBackground(canvas, bounds, item.artworkIndex, sourceBitmap, configuration)
+            drawBrightnessAndDim(canvas, bounds, configuration)
+        }
+    }
+
+    fun clearBackgroundCache() {
+        synchronized(backgroundCacheLock) {
+            cachedBackgroundBitmap?.takeUnless { it.isRecycled }?.recycle()
+            cachedBackgroundBitmap = null
+            cachedBackgroundKey = null
+            failedBackgroundKey = null
         }
     }
 
@@ -531,6 +626,12 @@ class WallpaperRenderer(private val context: Context) {
         val textSize = canvas.width * 0.082f * config.scale
         val paint = textPaint(primary, textSize, "minimal", accent)
         drawCentered(canvas, timeText, cx, cy - textSize * 0.05f, paint)
+        if (config.showAmPm && !use24) {
+            val direction = if (TextUtils.getLayoutDirectionFromLocale(locale) == View.LAYOUT_DIRECTION_RTL) -1f else 1f
+            paint.textSize = textSize * 0.23f
+            paint.color = accent
+            drawCentered(canvas, ClockTime.amPm(time, locale), cx + direction * textSize * 1.55f, cy - textSize * 0.05f, paint)
+        }
         paint.textSize = textSize * 0.22f
         paint.color = accent
         var y = cy + textSize * 0.40f
@@ -581,7 +682,22 @@ class WallpaperRenderer(private val context: Context) {
     private fun Int.withAlpha(alpha: Int): Int = (this and 0x00FFFFFF) or (alpha.coerceIn(0, 255) shl 24)
     private fun Int.withAlpha(factor: Float): Int = withAlpha((Color.alpha(this) * factor.coerceIn(0f, 1f)).toInt())
 
+    private data class BackgroundCacheKey(
+        val wallpaperId: String,
+        val artworkIndex: Int,
+        val width: Int,
+        val height: Int,
+        val sourceBitmap: Bitmap?,
+        val brightness: Float,
+        val dimAmount: Float,
+        val scaleMode: BackgroundScaleMode,
+    )
+
     private data class ArtTheme(val top: Int, val mid: Int, val bottom: Int, val accent: Int, val glow: Int)
+
+    private companion object {
+        const val MAX_BACKGROUND_DIMENSION = 2_400
+    }
 
     private val themes = listOf(
         ArtTheme(0xFF050709.toInt(), 0xFF10191D.toInt(), 0xFF010203.toInt(), 0xFF39C7B5.toInt(), 0xFF0A817C.toInt()),

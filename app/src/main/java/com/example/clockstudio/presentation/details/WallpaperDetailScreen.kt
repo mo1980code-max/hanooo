@@ -81,8 +81,11 @@ fun WallpaperDetailScreen(
     val isFavorite = item.id in favorites
     val scope = rememberCoroutineScope()
     val tickSeconds = configuration.showSeconds || (item.category == ClockCategory.ANALOG && configuration.showSecondHand)
-    val time = rememberCurrentTime(tickSeconds)
-    val battery: BatteryInfo? = rememberBatteryInfo(active = item.category == ClockCategory.SMART)
+    val time = rememberCurrentTime(
+        updateEverySecond = tickSeconds,
+        smoothSeconds = item.category == ClockCategory.ANALOG && configuration.showSecondHand && configuration.smoothSeconds,
+    )
+    val battery: BatteryInfo? = rememberBatteryInfo(active = item.category == ClockCategory.SMART && configuration.showBattery)
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         WallpaperArt(item = item, modifier = Modifier.fillMaxSize(), configuration = configuration)

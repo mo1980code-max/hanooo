@@ -41,6 +41,12 @@ class UserPreferencesRepository(context: Context) {
         .recoverFromDiskError()
         .map { it[FAVORITES].orEmpty() }
 
+    val selectedCategoryFlow: Flow<ClockCategory> = store.data
+        .recoverFromDiskError()
+        .map { preferences ->
+            ClockCategory.fromKey(preferences[SELECTED_CATEGORY] ?: preferences[DEFAULT_CATEGORY])
+        }
+
     suspend fun updateSettings(transform: (AppSettings) -> AppSettings) {
         store.edit { preferences ->
             val previous = readSettings(preferences)
@@ -76,7 +82,14 @@ class UserPreferencesRepository(context: Context) {
     }
 
     suspend fun setDefaultCategory(category: ClockCategory) {
-        store.edit { preferences -> preferences[DEFAULT_CATEGORY] = category.key }
+        store.edit { preferences ->
+            preferences[DEFAULT_CATEGORY] = category.key
+            preferences[SELECTED_CATEGORY] = category.key
+        }
+    }
+
+    suspend fun setSelectedCategory(category: ClockCategory) {
+        store.edit { preferences -> preferences[SELECTED_CATEGORY] = category.key }
     }
 
     suspend fun toggleFavorite(wallpaperId: String) {
@@ -187,6 +200,7 @@ class UserPreferencesRepository(context: Context) {
     private companion object {
         val LANGUAGE_TAG = stringPreferencesKey("language_tag")
         val DEFAULT_CATEGORY = stringPreferencesKey("default_category")
+        val SELECTED_CATEGORY = stringPreferencesKey("selected_category")
         val USE_SYSTEM_24 = booleanPreferencesKey("use_system_24_hour")
         val SMOOTH_ANALOG_SECONDS = booleanPreferencesKey("smooth_analog_seconds")
         val SHOW_SECONDS = booleanPreferencesKey("show_seconds")

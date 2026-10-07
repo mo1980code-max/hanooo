@@ -6,22 +6,28 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import java.time.ZonedDateTime
 
 /** A single screen-level ticker avoids one timer per gallery thumbnail. */
 @Composable
-fun rememberCurrentTime(updateEverySecond: Boolean): ZonedDateTime {
+fun rememberCurrentTime(updateEverySecond: Boolean, smoothSeconds: Boolean = false): ZonedDateTime {
     var time by remember { mutableStateOf(ZonedDateTime.now()) }
-    LaunchedEffect(updateEverySecond) {
-        while (true) {
-            time = ZonedDateTime.now()
-            val wait = if (updateEverySecond) {
-                (1_000L - System.currentTimeMillis().mod(1_000L)).coerceAtLeast(30L)
-            } else {
-                (60_000L - System.currentTimeMillis().mod(60_000L) + 25L).coerceAtLeast(250L)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(updateEverySecond, smoothSeconds, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                time = ZonedDateTime.now()
+                val wait = when {
+                    smoothSeconds -> (33L - System.currentTimeMillis().mod(33L)).coerceAtLeast(8L)
+                    updateEverySecond -> (1_000L - System.currentTimeMillis().mod(1_000L)).coerceAtLeast(30L)
+                    else -> (60_000L - System.currentTimeMillis().mod(60_000L) + 25L).coerceAtLeast(250L)
+                }
+                delay(wait)
             }
-            delay(wait)
         }
     }
     return time

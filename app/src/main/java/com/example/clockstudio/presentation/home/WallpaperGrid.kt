@@ -1,6 +1,7 @@
 package com.example.clockstudio.presentation.home
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.clockstudio.R
+import com.example.clockstudio.domain.model.AppSettings
 import com.example.clockstudio.domain.model.ClockCategory
 import com.example.clockstudio.domain.model.WallpaperConfiguration
 import com.example.clockstudio.domain.model.WallpaperItem
@@ -45,6 +47,7 @@ fun WallpaperGrid(
     wallpapers: List<WallpaperItem>,
     time: ZonedDateTime,
     batteryPercent: Int?,
+    appSettings: AppSettings,
     onWallpaperClick: (WallpaperItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -71,6 +74,7 @@ fun WallpaperGrid(
                         item = wallpaper,
                         time = time,
                         batteryPercent = batteryPercent,
+                        appSettings = appSettings,
                         onClick = { onWallpaperClick(wallpaper) },
                     )
                 }
@@ -84,6 +88,7 @@ private fun WallpaperCard(
     item: WallpaperItem,
     time: ZonedDateTime,
     batteryPercent: Int?,
+    appSettings: AppSettings,
     onClick: () -> Unit,
 ) {
     val description = stringResource(R.string.wallpaper_name_description, item.title)
@@ -109,7 +114,15 @@ private fun WallpaperCard(
                     item = item,
                     time = time,
                     batteryPercent = batteryPercent,
-                    configuration = WallpaperConfiguration.forWallpaper(item),
+                    configuration = WallpaperConfiguration.forWallpaper(item).copy(
+                        useSystem24HourFormat = appSettings.useSystem24HourFormat,
+                        showSeconds = appSettings.showSeconds,
+                        smoothSeconds = appSettings.smoothAnalogSeconds,
+                        showDate = appSettings.showDate,
+                        showBattery = item.category == ClockCategory.SMART && appSettings.showBatteryPercentage,
+                        showSecondHand = item.category == ClockCategory.ANALOG && appSettings.showSeconds,
+                        dimAmount = appSettings.wallpaperDimAmount,
+                    ),
                     compact = true,
                 )
             }

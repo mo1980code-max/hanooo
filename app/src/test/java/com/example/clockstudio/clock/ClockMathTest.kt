@@ -22,6 +22,11 @@ class ClockMathTest {
         assertEquals(3, ClockMath.hoursToAnalogHour(15))
     }
 
+    @Test fun twentyThreeFiftyNineIsJustBeforeTwelveOnTheDial() {
+        assertEquals(359.5f, ClockMath.hourAngle(23, 59), 0.0001f)
+        assertEquals(354f, ClockMath.minuteAngle(59, 0), 0.0001f)
+    }
+
     @Test fun minuteAndSecondHandsIncludeSubMinuteProgress() {
         assertEquals(181.5f, ClockMath.minuteAngle(30, 15), 0.0001f)
         assertEquals(91.5f, ClockMath.secondAngle(15, 250f), 0.0001f)

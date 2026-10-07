@@ -119,7 +119,9 @@ fun LanguageScreen(
                         onSelect = {
                             scope.launch {
                                 preferencesRepository.setLanguage(option.tag)
-                                AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(option.tag))
+                                if (!selectedTag.equals(option.tag, ignoreCase = true)) {
+                                    AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(option.tag))
+                                }
                             }
                         },
                     )

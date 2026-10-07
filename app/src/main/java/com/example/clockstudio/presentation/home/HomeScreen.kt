@@ -66,7 +66,6 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.rememberDrawerState
 import com.example.clockstudio.R
 import com.example.clockstudio.ads.BannerAdContainer
-import com.example.clockstudio.clock.digital.DigitalClockCatalog
 import com.example.clockstudio.domain.model.ClockCategory
 import com.example.clockstudio.domain.model.WallpaperItem
 import com.example.clockstudio.presentation.components.ClockLogo
@@ -99,20 +98,17 @@ fun HomeScreen(
         }
     }
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }
+        snapshotFlow { pagerState.settledPage }
             .distinctUntilChanged()
             .collect { page -> homeCategories.getOrNull(page)?.let(viewModel::selectCategory) }
     }
 
-    val secondsInPreview = when (uiState.selectedCategory) {
-        ClockCategory.CUSTOM -> false
-        ClockCategory.DIGITAL -> uiState.wallpapersFor(ClockCategory.DIGITAL)
-            .any { DigitalClockCatalog.find(it.clockStyleId).showSeconds }
-        ClockCategory.ANALOG -> true
-        ClockCategory.SMART -> uiState.appSettings.showSeconds
-    }
-    val now = rememberCurrentTime(updateEverySecond = secondsInPreview)
-    val battery = rememberBatteryInfo(active = uiState.selectedCategory == ClockCategory.SMART)
+    val secondsInPreview = uiState.selectedCategory != ClockCategory.CUSTOM && uiState.appSettings.showSeconds
+    val now = rememberCurrentTime(
+        updateEverySecond = secondsInPreview,
+        smoothSeconds = uiState.selectedCategory == ClockCategory.ANALOG && uiState.appSettings.showSeconds && uiState.appSettings.smoothAnalogSeconds,
+    )
+    val battery = rememberBatteryInfo(active = uiState.selectedCategory == ClockCategory.SMART && uiState.appSettings.showBatteryPercentage)
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -142,7 +138,7 @@ fun HomeScreen(
                             type = "text/plain"
                             putExtra(Intent.EXTRA_TEXT, context.getString(R.string.share_message))
                         }
-                        context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_app)))
+                        runCatching { context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_app))) }
                     },
                     onRate = {
                         scope.launch { drawerState.close() }
@@ -150,7 +146,9 @@ fun HomeScreen(
                         try {
                             context.startActivity(Intent(Intent.ACTION_VIEW, packageUri))
                         } catch (_: Exception) {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=${context.packageName}")))
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=${context.packageName}")))
+                            }
                         }
                     },
                 )
@@ -194,6 +192,7 @@ fun HomeScreen(
                         },
                         time = now,
                         batteryPercent = battery?.percent,
+                        appSettings = uiState.appSettings,
                         onWallpaperClick = { item ->
                             viewModel.openWallpaper(item.id)
                             onOpenWallpaper(item)

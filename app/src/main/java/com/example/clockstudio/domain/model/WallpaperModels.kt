@@ -145,7 +145,11 @@ data class WallpaperConfiguration(
                     ClockCategory.SMART -> true
                     ClockCategory.ANALOG -> false
                 },
-                showAmPm = if (item.category == ClockCategory.DIGITAL || item.category == ClockCategory.CUSTOM) digital.showAmPm else false,
+                showAmPm = when (item.category) {
+                    ClockCategory.CUSTOM, ClockCategory.DIGITAL -> digital.showAmPm
+                    ClockCategory.SMART -> true
+                    ClockCategory.ANALOG -> false
+                },
                 showSecondHand = item.category == ClockCategory.ANALOG,
                 showNumbers = analog.showNumbers,
                 showBattery = item.category == ClockCategory.SMART,
