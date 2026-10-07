@@ -1,0 +1,13 @@
+# Gradle and Android build outputs
+.gradle/
+**/build/
+local.properties
+
+# Android Studio/IntelliJ project state
+.idea/
+*.iml
+
+# Local device/test captures and native build artifacts
+captures/
+.externalNativeBuild/
+.cxx/
